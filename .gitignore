@@ -1,0 +1,20 @@
+# Entorno virtual
+venv/
+pyvenv.cfg
+lib/
+bin/
+
+# Archivos de configuración del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Archivos de configuración de IDE (VSCode, PyCharm)
+.vscode/
+.idea/
+
+# Archivos de logs
+*.log
+
+# Archivos de bases de datos locales, si es que los tienes
+*.sqlite
+
