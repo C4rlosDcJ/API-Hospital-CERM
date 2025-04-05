@@ -24,5 +24,5 @@ class Sensor(db.Model):
             'unidad_medida': self.unidad_medida,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
-            'registros_sensores': [registro.to_dict() for registro in self.registros_sensores]  # Si RegistroSensor tiene un método to_dict()
+            'registros_sensores': [registro.to_dict() for registro in self.registros_sensores]  
         }

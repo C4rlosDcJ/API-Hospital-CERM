@@ -1,4 +1,8 @@
 from flask import Blueprint
+from flask import request, jsonify
+from app.controllers.registro_sensor_oximetro import SensorOximetroController
+
+
 from app.controllers import (
     get_users, get_user, create_user, update_user, delete_user,
     get_brazos_roboticos, get_brazo_robotico, create_brazo_robotico, 
@@ -15,11 +19,12 @@ from app.controllers import (
     create_registro_sensor, update_registro_sensor, delete_registro_sensor,
     get_historial_inyecciones, get_historial_inyeccion, 
     create_historial_inyeccion, update_historial_inyeccion, delete_historial_inyeccion,
-    get_citas, get_cita, create_cita, update_cita, delete_cita
+    get_citas, get_cita, create_cita, update_cita, delete_cita, search_citas
 )
 
 # Crear un Blueprint para las rutas
 main_routes = Blueprint('main', __name__)
+
 
 # ==================================================
 # Rutas para Users
@@ -50,6 +55,10 @@ def remove_user(user_id):
 @main_routes.route('/citas', methods=['GET'])
 def list_citas():
     return get_citas()
+
+@main_routes.route('/citas/search', methods=['GET'])
+def citas_search():
+    return search_citas()
 
 @main_routes.route('/citas/<int:cita_id>', methods=['GET'])
 def show_cita(cita_id):
@@ -226,3 +235,19 @@ def modify_historial_inyeccion(historial_id):
 @main_routes.route('/historial-inyecciones/<int:historial_id>', methods=['DELETE'])
 def remove_historial_inyeccion(historial_id):
     return delete_historial_inyeccion(historial_id)
+
+
+
+
+# Sensor Oximetro
+@main_routes.route('/data', methods=['POST'])
+def create_data():
+    return SensorOximetroController.create_sensor_data()
+
+@main_routes.route('/data', methods=['GET'])
+def get_data():
+    return SensorOximetroController.get_sensor_data()
+
+@main_routes.route('/data/all', methods=['GET'])
+def get_all_sensor_data():
+    return SensorOximetroController.get_all_sensor_data()

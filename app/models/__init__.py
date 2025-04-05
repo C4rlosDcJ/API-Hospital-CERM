@@ -6,4 +6,5 @@ from .sensor import Sensor
 from .operacion import Operacion
 from .registro_sensor import RegistroSensor
 from .historial_inyeccion import HistorialInyeccion
+from.oximetro import Oximetro
 from .cita import Cita

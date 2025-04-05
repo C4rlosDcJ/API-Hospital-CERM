@@ -30,5 +30,8 @@ from .historial_inyeccion_controller import (
     create_historial_inyeccion, update_historial_inyeccion, delete_historial_inyeccion
 )
 from .cita_controller import (
-    get_citas, get_cita, create_cita, update_cita, delete_cita
+    get_citas, get_cita, create_cita, update_cita, delete_cita, search_citas
+)
+from.registro_sensor_oximetro import(
+    SensorOximetroController
 )
