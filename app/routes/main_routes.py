@@ -251,3 +251,24 @@ def get_data():
 @main_routes.route('/data/all', methods=['GET'])
 def get_all_sensor_data():
     return SensorOximetroController.get_all_sensor_data()
+
+
+# Variable global para comando actual
+current_command = None
+
+# Ruta para manejar comandos (POST para establecer, GET para obtener)
+@main_routes.route('/command', methods=['POST', 'GET'])
+def handle_command():
+    global current_command
+
+    if request.method == 'POST':
+        data = request.get_json()
+        current_command = data
+        return jsonify({'status': 'success'})
+
+    elif request.method == 'GET':
+        if current_command:
+            response = current_command
+            current_command = None
+            return jsonify(response)
+        return jsonify({'status': 'no command'})
