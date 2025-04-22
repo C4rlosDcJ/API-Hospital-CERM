@@ -1,6 +1,9 @@
-from flask import Blueprint
-from flask import request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from app.controllers.registro_sensor_oximetro import SensorOximetroController
+from collections import deque
+import time
+import logging
+from datetime import datetime
 
 
 from app.controllers import (
@@ -239,14 +242,14 @@ def remove_historial_inyeccion(historial_id):
 
 
 
-# Sensor Oximetro
-@main_routes.route('/data', methods=['POST'])
-def create_data():
-    return SensorOximetroController.create_sensor_data()
+# # Sensor Oximetro
+# @main_routes.route('/data', methods=['POST'])
+# def create_data():
+#     return SensorOximetroController.create_sensor_data()
 
-@main_routes.route('/data', methods=['GET'])
-def get_data():
-    return SensorOximetroController.get_sensor_data()
+# @main_routes.route('/data', methods=['GET'])
+# def get_data():
+#     return SensorOximetroController.get_sensor_data()
 
 @main_routes.route('/data/all', methods=['GET'])
 def get_all_sensor_data():
@@ -272,3 +275,259 @@ def handle_command():
             current_command = None
             return jsonify(response)
         return jsonify({'status': 'no command'})
+    
+
+
+# Oximetro
+
+# Configuración
+logging.basicConfig(level=logging.INFO)
+data = deque(maxlen=100)  # Buffer circular
+
+# Umbrales médicos actualizados
+MEDICAL_RANGES = {
+    'spo2': {
+        'normal': (95, 100),
+        'hypoxia': (90, 94),
+        'severe_hypoxia': (0, 89)
+    },
+    'bpm': {
+        'normal': (60, 100),
+        'bradycardia': (40, 59),
+        'tachycardia': (101, 140)
+    },
+    'temperature': {
+        'normal': (30, 37.5),
+        'hypothermia': (0, 35.9),
+        'fever': (37.6, 39.9),
+        'hyperpyrexia': (40.0, 45.0)
+    }
+}
+@main_routes.route('/data', methods=['POST'])
+def receive_data():
+    try:
+        # Parseo y validación mejorada
+        sensor_data = {
+            'dc_red': float(request.form.get('red', 0)),
+            'dc_ir': float(request.form.get('ir', 0)),
+            'spo2': float(request.form.get('spo2', 0)),
+            'bpm': int(request.form.get('bpm', 0)),
+            'temp': float(request.form.get('temp', 0)),
+            'timestamp': int(request.form.get('t', 0)),
+            'raw_red': float(request.form.get('red', 0)),  # Para análisis futuro
+            'raw_ir': float(request.form.get('ir', 0))     # Para análisis futuro
+        }
+
+        # Validación avanzada
+        if not (0 <= sensor_data['spo2'] <= 100):
+            raise ValueError("SpO2 fuera de rango (0-100%)")
+        if not (30 <= sensor_data['bpm'] <= 200):
+            raise ValueError("BPM fuera de rango (30-200)")
+        if not (25.0 <= sensor_data['temp'] <= 45.0):
+            raise ValueError("Temperatura fuera de rango (25-45°C)")
+
+        # Metadata adicional
+        sensor_data['received_at'] = datetime.now().isoformat()
+        sensor_data['processed'] = False  # Para procesamiento posterior
+        
+        data.append(sensor_data)
+        current_app.logger.info(f"Datos recibidos: {sensor_data}")
+        
+        return jsonify({'status': 'success', 'message': 'Datos almacenados'}), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 400
+
+# Actualizar la ruta /get_data
+@main_routes.route('/get_data', methods=['GET'])
+def get_data():
+    try:
+        response_data = {
+            'status': 'success',
+            'data': list(data),
+            'diagnosis': generate_empty_diagnosis(),
+            'signal_quality': 'unknown',
+            'trends': {}
+        }
+
+        if data:
+            latest = data[-1]
+            response_data['diagnosis'] = generate_diagnosis(latest)
+            response_data['stats'] = calculate_statistics()
+            response_data['signal_quality'] = calculate_signal_quality(latest)
+            response_data['trends'] = calculate_trends()
+
+        return jsonify(response_data)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'data': [],
+            'diagnosis': generate_error_diagnosis(str(e))
+        }), 500
+    
+# Añadir función de tendencias
+def calculate_trends():
+    """Calcula tendencias de los últimos 10 datos"""
+    if len(data) < 2:
+        return {}
+    
+    trends = {}
+    last_10 = list(data)[-10:]
+    
+    for metric in ['spo2', 'bpm', 'temp']:
+        values = [x[metric] for x in last_10]
+        avg_change = (values[-1] - values[0]) / len(values)
+        
+        if abs(avg_change) < 0.5:
+            trends[metric] = 'stable'
+        elif avg_change > 0:
+            trends[metric] = 'rising'
+        else:
+            trends[metric] = 'falling'
+    
+    return trends
+
+def calculate_statistics():
+    """Calcula estadísticas avanzadas de los datos históricos"""
+    if not data:
+        return {}
+
+    stats = {
+        'spo2': {'min': 100, 'max': 0, 'avg': 0},
+        'bpm': {'min': 200, 'max': 0, 'avg': 0},
+        'temp': {'min': 45.0, 'max': 0.0, 'avg': 0.0}
+    }
+
+    total = len(data)
+    for entry in data:
+        for metric in ['spo2', 'bpm', 'temp']:
+            stats[metric]['min'] = min(stats[metric]['min'], entry[metric])
+            stats[metric]['max'] = max(stats[metric]['max'], entry[metric])
+            stats[metric]['avg'] += entry[metric]
+
+    for metric in stats:
+        stats[metric]['avg'] = round(stats[metric]['avg'] / total, 1)
+
+    return stats
+
+# Modificar la función generate_diagnosis
+def generate_diagnosis(reading):
+    """Genera diagnóstico médico integrado con estructura para el frontend"""
+    diagnosis = {
+        'spo2': {
+            **analyze_spo2(reading['spo2']),
+            'value': reading['spo2'],
+            'normal_range': f"{MEDICAL_RANGES['spo2']['normal'][0]}-{MEDICAL_RANGES['spo2']['normal'][1]}%"
+        },
+        'bpm': {
+            **analyze_bpm(reading['bpm']),
+            'value': reading['bpm'],
+            'normal_range': f"{MEDICAL_RANGES['bpm']['normal'][0]}-{MEDICAL_RANGES['bpm']['normal'][1]} bpm"
+        },
+        'temp': {
+            **analyze_temp(reading['temp']),
+            'value': reading['temp'],
+            'normal_range': f"{MEDICAL_RANGES['temperature']['normal'][0]}-{MEDICAL_RANGES['temperature']['normal'][1]}°C"
+        },
+        'messages': [],
+        'severity': 'normal',
+        'timestamp': reading['received_at']
+    }
+
+    # Determinar severidad y mensajes (mantenemos la lógica original)
+    severities = {'normal': 0, 'warning': 1, 'critical': 2}
+    for metric in ['spo2', 'bpm', 'temp']:
+        if severities[diagnosis[metric]['severity']] > severities[diagnosis['severity']]:
+            diagnosis['severity'] = diagnosis[metric]['severity']
+    
+    diagnosis['messages'] = [diagnosis[metric]['description'] for metric in ['spo2', 'bpm', 'temp'] 
+                            if diagnosis[metric]['status'] != 'Normal']
+    
+    if not diagnosis['messages']:
+        diagnosis['messages'].append("Todos los parámetros están dentro de rangos normales")
+
+    return diagnosis
+
+# Añadir función para calidad de señal
+def calculate_signal_quality(entry):
+    """Determina la calidad de señal basada en los valores RAW"""
+    ir = abs(entry['raw_ir'])
+    red = abs(entry['raw_red'])
+    
+    if ir > 50000 and red > 50000:
+        return 'excellent'
+    elif ir > 30000 or red > 30000:
+        return 'weak'
+    else:
+        return 'poor'
+
+def analyze_spo2(value):
+    ranges = MEDICAL_RANGES['spo2']
+    if value >= ranges['normal'][0]:
+        return medical_condition('Normal', 'normal', 'fa-check-circle', f"SpO2 normal ({value}%)")
+    elif value >= ranges['hypoxia'][0]:
+        return medical_condition('Hipoxia leve', 'warning', 'fa-exclamation-circle', 
+                              f"Oxigenación sanguínea baja ({value}%)")
+    else:
+        return medical_condition('Hipoxia severa', 'critical', 'fa-exclamation-triangle',
+                              f"Oxigenación sanguínea peligrosamente baja ({value}%)")
+
+def analyze_bpm(value):
+    ranges = MEDICAL_RANGES['bpm']
+    if ranges['normal'][0] <= value <= ranges['normal'][1]:
+        return medical_condition('Normal', 'normal', 'fa-check-circle', f"Ritmo cardíaco normal ({value} bpm)")
+    elif ranges['bradycardia'][0] <= value <= ranges['bradycardia'][1]:
+        return medical_condition('Bradicardia', 'warning', 'fa-exclamation-circle',
+                               f"Ritmo cardíaco lento ({value} bpm)")
+    elif ranges['tachycardia'][0] <= value <= ranges['tachycardia'][1]:
+        return medical_condition('Taquicardia', 'warning', 'fa-exclamation-circle',
+                               f"Ritmo cardíaco acelerado ({value} bpm)")
+    else:
+        return medical_condition('Arritmia', 'critical', 'fa-exclamation-triangle',
+                               f"Ritmo cardíaco peligroso ({value} bpm)")
+
+def analyze_temp(value):
+    ranges = MEDICAL_RANGES['temperature']
+    if ranges['normal'][0] <= value <= ranges['normal'][1]:
+        return medical_condition('Normal', 'normal', 'fa-check-circle', f"Temperatura normal ({value}°C)")
+    elif value <= ranges['hypothermia'][1]:
+        return medical_condition('Hipotermia', 'critical', 'fa-exclamation-triangle',
+                               f"Temperatura corporal baja ({value}°C)")
+    elif ranges['fever'][0] <= value <= ranges['fever'][1]:
+        return medical_condition('Fiebre', 'warning', 'fa-exclamation-circle',
+                               f"Temperatura elevada ({value}°C)")
+    else:
+        return medical_condition('Hiperpirexia', 'critical', 'fa-exclamation-triangle',
+                               f"Temperatura peligrosamente alta ({value}°C)")
+
+def medical_condition(status, severity, icon, description):
+    return {
+        'status': status,
+        'severity': severity,
+        'icon': icon,
+        'description': description
+    }
+
+def generate_empty_diagnosis():
+    return {
+        'spo2': medical_condition('Sin datos', 'normal', 'fa-question-circle', "Esperando datos de SpO2"),
+        'bpm': medical_condition('Sin datos', 'normal', 'fa-question-circle', "Esperando datos de ritmo cardíaco"),
+        'temp': medical_condition('Sin datos', 'normal', 'fa-question-circle', "Esperando datos de temperatura"),
+        'messages': ['Esperando datos del sensor...'],
+        'severity': 'normal',
+        'timestamp': datetime.now().isoformat()
+    }
+
+def generate_error_diagnosis(error_msg):
+    return {
+        'spo2': medical_condition('Error', 'critical', 'fa-exclamation-triangle', "Error en lectura de SpO2"),
+        'bpm': medical_condition('Error', 'critical', 'fa-exclamation-triangle', "Error en lectura de ritmo cardíaco"),
+        'temp': medical_condition('Error', 'critical', 'fa-exclamation-triangle', "Error en lectura de temperatura"),
+        'messages': [f'Error del sistema: {error_msg}'],
+        'severity': 'critical',
+        'timestamp': datetime.now().isoformat()
+    }

@@ -46,9 +46,9 @@ MAX30105 particleSensor;
 HTTPClient http;
 BiometricData currentData;
 NetworkConfiguration networkConfig = {
-  "C4rlos",
-  "C4rlos304.",
-  "http://192.168.0.20:5000/data"
+  "Carlo's",
+  "00000000",
+  "https://18.212.80.15/data"
 };
 
 SensorConfiguration sensorConfig = {
